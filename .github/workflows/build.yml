@@ -22,9 +22,6 @@ jobs:
           - os: windows-latest
             c_compiler: cl
             cpp_compiler: cl
-#          - os: macos-latest
-#            c_compiler: clang
-#            cpp_compiler: clang++
 
     steps:
     - uses: actions/checkout@v4
@@ -42,19 +39,12 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libgl1-mesa-dev libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxrender-dev libfontconfig1-dev libssl-dev
 
-    - name: Install macOS Dependencies
-      if: runner.os == 'macOS'
-      run: |
-        brew install openssl
-
     - name: Configure CMake with Conan
       run: |
         mkdir build && cd build
-        conan install .. --build=missing \
-          -s build_type=${{ matrix.build_type }} \
-          -s compiler.cppstd=20 \
-          -s:b compiler.cppstd=20
+        conan install .. --build=missing -s build_type=${{ matrix.build_type }} -s compiler.cppstd=20 -s:b compiler.cppstd=20 -c tools.system.package_manager:mode=install -c tools.system.package_manager:sudo=True
         cmake .. -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_POLICY_DEFAULT_CMP0167=OLD
+      shell: bash
 
     - name: Build
       run: |
