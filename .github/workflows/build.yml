@@ -13,10 +13,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest] #, macos-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest] #, macos-latest]
         build_type: [Release]
         include:
           - os: ubuntu-latest
+            c_compiler: gcc
+            cpp_compiler: g++
+          - os: ubuntu-24.04-arm
             c_compiler: gcc
             cpp_compiler: g++
           - os: windows-latest
@@ -43,7 +46,7 @@ jobs:
       run: |
         mkdir build && cd build
         conan install .. --build=missing -s build_type=${{ matrix.build_type }} -s compiler.cppstd=20 -s:b compiler.cppstd=20 -c tools.system.package_manager:mode=install -c tools.system.package_manager:sudo=True
-        cmake .. -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_POLICY_DEFAULT_CMP0167=OLD
+        cmake .. -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_TOOLCHAIN_FILE=conan_toolchain.cmake
       shell: bash
 
     - name: Build
