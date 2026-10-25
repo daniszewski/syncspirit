@@ -1,0 +1,69 @@
+name: Build Syncspirit
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  pull_request:
+    branches: [ "master", "main" ]
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        build_type: [Release]
+        include:
+          - os: ubuntu-latest
+            c_compiler: gcc
+            cpp_compiler: g++
+          - os: windows-latest
+            c_compiler: cl
+            cpp_compiler: cl
+          - os: macos-latest
+            c_compiler: clang
+            cpp_compiler: clang++
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install Conan
+      uses: conan-io/setup-conan@v1
+      with:
+        conan-version: '2.x'
+
+    - name: Install Linux Dependencies (FLTK, OpenGL, etc.)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libgl1-mesa-dev libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxrender-dev libfontconfig1-dev libssl-dev
+
+    - name: Install macOS Dependencies
+      if: runner.os == 'macOS'
+      run: |
+        brew install openssl
+
+    - name: Configure CMake with Conan
+      run: |
+        mkdir build
+        cd build
+        conan install .. --build=missing -s build_type=${{ matrix.build_type }}
+        cmake .. -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+
+    - name: Build
+      run: |
+        cd build
+        cmake --build . --config ${{ matrix.build_type }} -j 4
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: syncspirit-${{ matrix.os }}-${{ matrix.build_type }}
+        path: |
+          build/src/**/syncspirit*
+          build/**/syncspirit*
+        if-no-files-found: warn
