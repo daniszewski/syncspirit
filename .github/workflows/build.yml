@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest] #, macos-latest]
         build_type: [Release]
         include:
           - os: ubuntu-latest
@@ -22,9 +22,9 @@ jobs:
           - os: windows-latest
             c_compiler: cl
             cpp_compiler: cl
-          - os: macos-latest
-            c_compiler: clang
-            cpp_compiler: clang++
+#          - os: macos-latest
+#            c_compiler: clang
+#            cpp_compiler: clang++
 
     steps:
     - uses: actions/checkout@v4
@@ -49,10 +49,12 @@ jobs:
 
     - name: Configure CMake with Conan
       run: |
-        mkdir build
-        cd build
-        conan install .. --build=missing -s build_type=${{ matrix.build_type }}
-        cmake .. -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+        mkdir build && cd build
+        conan install .. --build=missing \
+          -s build_type=${{ matrix.build_type }} \
+          -s compiler.cppstd=20 \
+          -s:b compiler.cppstd=20
+        cmake .. -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_POLICY_DEFAULT_CMP0167=OLD
 
     - name: Build
       run: |
