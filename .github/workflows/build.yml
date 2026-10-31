@@ -52,13 +52,12 @@ jobs:
     - name: Build
       run: |
         cd build
-        cmake --build . --config ${{ matrix.build_type }} -j 4
+        cmake --build . --config ${{ matrix.build_type }} -DCMAKE_C_FLAGS="/std:clatest" -j 4
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: syncspirit-${{ matrix.os }}-${{ matrix.build_type }}
         path: |
-          build/src/**/syncspirit*
-          build/**/syncspirit*
+          build/*
         if-no-files-found: warn
