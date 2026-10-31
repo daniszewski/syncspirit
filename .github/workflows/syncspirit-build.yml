@@ -118,7 +118,7 @@ jobs:
             libx11-xcb-dev \
             libxft-dev \
             libxrender-dev \
-            libxslt1.0-dev \
+            libxslt1-dev \
             libxml2-dev \
             curl \
             p7zip-full \
