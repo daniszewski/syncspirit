@@ -1,0 +1,239 @@
+name: syncspirit-build
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux-sanitized-test:
+    name: Linux sanitizers + tests
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install Linux toolchain and deps
+        shell: bash
+        run: |
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y software-properties-common
+          sudo add-apt-repository ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install -y gcc-13 g++-13 cmake python3-venv pkgconf mold
+          sudo apt-get install -y \
+            libgl1-mesa-dev \
+            libx11-xcb-dev \
+            libfontenc-dev \
+            libice-dev \
+            libsm-dev \
+            libxaw7-dev \
+            libxcomposite-dev \
+            libxcursor-dev \
+            libxdamage-dev \
+            libxext-dev \
+            libxfixes-dev \
+            libxi-dev \
+            libxft-dev
+          python3 -m venv .venv
+          . .venv/bin/activate
+          pip install conan
+          conan profile detect
+          cp .sourcecraft/conan-profile-linux-native ~/.conan2/profiles/linux-native
+
+      - name: Configure project
+        shell: bash
+        run: |
+          set -eux
+          . .venv/bin/activate
+          mkdir -p build.ci
+          cd build.ci
+          conan install --build=missing --profile=linux-native --output-folder . -s build_type=Debug -o '&:shared=True' ..
+          . ./conanbuild.sh
+          cmake .. -G "Unix Makefiles" -DCMAKE_TOOLCHAIN_FILE=conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fuse-ld=mold -fsanitize=undefined -fsanitize=address -fno-omit-frame-pointer"
+
+      - name: Build
+        shell: bash
+        run: |
+          set -eux
+          cd build.ci
+          make -j"$(nproc)"
+
+      - name: Test
+        shell: bash
+        run: |
+          set -eux
+          cd build.ci
+          ctest --rerun-failed --output-on-failure .
+
+  windows-build:
+    name: Windows release builds
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: win32
+            zip_name: syncspirit-win32.zip
+          - arch: win64
+            zip_name: syncspirit-win64.zip
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install MXE and cross-build deps
+        shell: bash
+        run: |
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            autoconf \
+            automake \
+            autopoint \
+            bash \
+            bison \
+            bzip2 \
+            flex \
+            g++ \
+            g++-multilib \
+            gettext \
+            git \
+            gperf \
+            intltool \
+            libc6-dev-i386 \
+            libclang-dev \
+            libgdk-pixbuf2.0-dev \
+            libltdl-dev \
+            libgl-dev \
+            libgtk-3-dev \
+            libpango1.0-dev \
+            libx11-dev \
+            libx11-xcb-dev \
+            libxft-dev \
+            libxrender-dev \
+            libxslt1.0-dev \
+            libxml2-dev \
+            curl \
+            p7zip-full \
+            coreutils \
+            zip
+          git clone --branch build-2022-04-09 --depth 1 https://github.com/mxe/mxe
+          cp .sourcecraft/mxe-settings-${{ matrix.arch }}.mk ./mxe/settings.mk
+          cd mxe
+          make zip
+          export PATH="$(pwd)/usr/bin:$PATH"
+          cd ..
+          python3 -m venv .venv
+          . .venv/bin/activate
+          pip install conan pefile
+          conan profile detect
+          cp .sourcecraft/conan-profile-${{ matrix.arch }} ~/.conan2/profiles/${{ matrix.arch }}
+
+      - name: Configure and build Windows binaries
+        shell: bash
+        run: |
+          set -eux
+          . .venv/bin/activate
+          mkdir -p build.ci
+          cd build.ci
+          conan install --build=missing --profile=${{ matrix.arch }} --output-folder . -s build_type=Release -o '&:shared=True' ..
+          . ./conanbuild.sh
+          cmake .. -G "Unix Makefiles" -DCMAKE_TOOLCHAIN_FILE=conan_toolchain.cmake -DCMAKE_POLICY_DEFAULT_CMP0091=NEW -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-D_WIN32_WINNT=0x0501 -DBOOST_USE_WINAPI_VERSION=0x0501 -D_WIN32_IE=0x0501 -D__USE_MINGW_ANSI_STDIO=1"
+          make -j"$(nproc)"
+          make -j"$(nproc)" deploy_deps
+          python ../misc/post-install-win32.py --binaries ./dist/*.exe --dirs $HOME/.conan2 ../mxe/ "$(pwd)"
+          cd dist
+          zip -r9 "../${{ matrix.zip_name }}" ./*
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.arch }}
+          path: ./build.ci/${{ matrix.zip_name }}
+
+  appimage:
+    name: Linux AppImage build
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Prepare GCC and deps
+        shell: bash
+        run: |
+          set -eux
+          export PATH="$HOME/my-gcc/bin:$HOME/.local/bin:$PATH"
+          sudo apt-get update
+          sudo apt-get install -y software-properties-common
+          sudo apt-get install -y \
+            g++-9 gcc-9 \
+            wget \
+            libxft-dev \
+            build-essential \
+            python3-pip \
+            make \
+            cmake \
+            git \
+            fuse \
+            libfuse2 \
+            libx11-dev \
+            libx11-xcb-dev \
+            libfontenc-dev \
+            libice-dev \
+            libsm-dev \
+            libxau-dev \
+            libxaw7-dev \
+            libxcomposite-dev \
+            libxcursor-dev \
+            libxdamage-dev \
+            libxext-dev \
+            libxfixes-dev \
+            libxi-dev
+          sudo apt-get install -y cmake python3-venv pkgconf
+          python3 -m venv "$HOME/myenv"
+          . "$HOME/myenv/bin/activate"
+          pip install conan
+          conan profile detect
+          conan install -r conancenter --tool-requires=b2/5.5.3 -o '&:use_cxx_env=True' --build="&"
+          wget https://ftp.gnu.org/gnu/gcc/gcc-14.3.0/gcc-14.3.0.tar.xz
+          tar -xf gcc-14.3.0.tar.xz
+          cd gcc-14.3.0
+          ./contrib/download_prerequisites
+          ./configure --prefix="$HOME/my-gcc" --enable-languages=c,c++ --disable-multilib --disable-bootstrap --disable-libstdcxx-pch --disable-libsanitizer --disable-libquadmath --disable-libgo --disable-libstdcxx-pch
+          make -j"$(nproc)" > /dev/null
+          make install
+          cd ..
+          cp .sourcecraft/conan-profile-linux-appimage /root/.conan2/profiles/default
+
+      - name: Build AppImage bundles
+        shell: bash
+        run: |
+          set -eux
+          export PATH="$HOME/my-gcc/bin:$HOME/.local/bin:$PATH"
+          . "$HOME/myenv/bin/activate"
+          mkdir -p build.ci
+          sudo apt-get remove -y g++-9 gcc-9 || true
+          sudo apt-get -y autoremove --purge || true
+          sudo apt-get install -y build-essential binutils
+          cd build.ci
+          conan install -u --build=missing --output-folder . -s build_type=Release -o '&:shared=True' ..
+          . ./conanbuild.sh
+          cmake .. -G "Unix Makefiles" -DCMAKE_TOOLCHAIN_FILE=conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Release
+          make -j"$(nproc)"
+          make deploy_syncspirit-daemon deploy_syncspirit-fltk
+
+      - name: Upload AppImage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: syncspirit-appimages
+          path: |
+            ./build.ci/AppDir/syncspirit-fltk-x86_64.AppImage
+            ./build.ci/AppDir/syncspirit-daemon-x86_64.AppImage
